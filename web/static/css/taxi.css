@@ -1,0 +1,57 @@
+html {
+    height: 100%;
+    width: 100%;
+}
+
+body {
+    height: 100%;
+    width: 100%;
+    margin: 0px;
+    padding: 0px;
+}
+
+.container {
+    height: 90%;
+    width: 90%;
+}
+
+#container_panel {
+    height: 100%;
+}
+
+.col-sm-8 {
+    height: 100%;
+}
+
+.col-sm-4 {
+    height: 100%;
+}
+
+.panel {
+    height: 100%;
+    width: 100%;
+}
+
+.panel-body {
+    height: 100%;
+    width: 100%;
+}
+
+.control-label {
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+#container_map {
+    height: 100%;
+    width: 100%;
+}
+
+#location_name {
+    width: 80%;
+}
+
+#location_search {
+    float: right;
+}

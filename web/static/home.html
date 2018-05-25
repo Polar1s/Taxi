@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+        <title>Taxi Demo with GPTree</title>
+    </head>
+
+    <!-- Bootstrap -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <!-- Internal style -->
+    <link href="/static/css/taxi.css" rel="stylesheet">
+    <!-- jQuery -->
+    <script type="text/javascript" src="/static/js/jquery-3.3.1.min.js"></script>
+    <!-- Bootstrap JavaScript -->
+    <script type="text/javascript" src="/static/js/bootstrap.js"></script>
+    <!-- gcoord -->
+    <script type="text/javascript" src="/static/js/gcoord.js"></script>
+    <!-- Baidu Map API -->
+    <script type="text/javascript" src="http://api.map.baidu.com/api?v=2.0&ak=rG7LU9afn0rsyn39iCygfXnIU6nTRGU6"></script>
+
+    <body>
+        <nav class="navbar navbar-default" role="navigation">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <a class="navbar-brand" href="#">Taxi</a>
+                </div>
+                <div>
+                    <ul class="nav navbar-nav">
+                        <li class="active"><a href="#">Home</a></li>
+                        <li><a href="/about">About</a></li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <div class="col-xs-12 col-sm-8" id="container_panel">
+                <div class="panel panel-default">
+                    <div class="panel-body">
+                        <div id="container_map"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xs-12 col-sm-4">
+                <h2>Locations</h2>
+                <br>
+                <div class="form-inline" id="location_form">
+                    <input type="text" class="form-control" id="location_name" placeholder="Search for location">
+                    <button class="btn btn-primary" id="location_search" onclick="searchLocation()">Search</button>
+                </div>
+                <br><br>
+                <div class="form-group">
+                    <label class="col-xs-3 control-label" for="origin_place">Origin</label>
+                    <div class="col-xs-7">
+                        <p class="form-control-static" id="origin_place">Unselected</p>
+                    </div>
+                    <button class="btn btn-danger col-xs-2" id="set_as_origin" onclick="selectOrigin()">Select</button>
+                </div>
+                <br><br>
+                <div class="form-group">
+                    <label class="col-xs-3 control-label">Destination</label>
+                    <div class="col-xs-7">
+                        <p class="form-control-static" id="destination_place">Unselected</p>
+                    </div>
+                    <button class="btn btn-success col-xs-2" id="set_as_origin" onclick="selectDest()">Select</button>
+                </div>
+                <br><br><br>
+
+                <h2>Operations</h2>
+                <br>
+                <div class="col-xs-5">
+                    <button class="btn btn-primary" id="taxi_search" onclick="searchForTaxis()">
+                        <span class="glyphicon glyphicon-refresh"></span> Search for Taxis
+                    </button>
+                </div>
+                <div class="col-xs-4">
+                    <label class="control-label">Current Taxi: </label>
+                    <span id="current_taxi">Unselected</span>
+                </div>
+                <div class="col-xs-3">
+                    <button class="btn btn-default" id="taxi_select" disabled="disabled" onclick="selectTaxi()">
+                        <span class="glyphicon glyphicon-check"></span> Select Taxi
+                    </button>
+                </div>
+                <br><br><br>
+
+                <h2>Taxi Info</h2>
+                <br>
+
+                <div id="taxi_info">None</div>
+            </div>
+        </div>
+    </body>
+
+    <script type="text/javascript">
+        // Global markers
+        var originMarker;
+        var destMarker;
+        var currentMarker;
+
+        // Query results
+        var results;
+
+        // Cars
+        var cars;
+        var currentTaxi;
+        var currentRoute;
+        var currentMidMarkers;
+
+        // Refresh overlays
+        function refreshOverlays() {
+            map.clearOverlays();
+            map.addOverlay(originMarker);
+            map.addOverlay(destMarker);
+
+            if (cars != null)
+                for (var i = 0; i < cars.length; i++)
+                    map.addOverlay(cars[i]);
+
+            if (currentTaxi) {
+                map.addOverlay(currentTaxi);
+                if (currentRoute != null)
+                    map.addOverlay(currentRoute);
+                if (currentMidMarkers != null)
+                    for (var i = 0; i < currentMidMarkers.length; i++)
+                        map.addOverlay(currentMidMarkers[i]);
+            }
+        }
+
+        // Check point duplication
+        function checkDuplicate(point1, point2) {
+            return point1.lng == point2.lng && point1.lat == point2.lat;
+        }
+
+        // New marker for point on the map
+        function newMarker(point, color) {
+            return new BMap.Marker(point, {
+                icon: new BMap.Symbol(BMap_Symbol_SHAPE_POINT, {
+                    scale: 1,
+                    fillColor: color,
+                    fillOpacity: "1.0"
+                })
+            });
+        }
+
+        // New marker for car
+        function newCar(point) {
+            return new BMap.Marker(point, {
+                icon: new BMap.Icon("http://lbsyun.baidu.com/jsdemo/img/car.png",
+                    new BMap.Size(26, 13),
+                    {imageSize: new BMap.Size(26, 13)})
+            });
+        }
+
+        // Location search
+        function searchLocation() {
+            local.search($("#location_name").val());
+        }
+
+        // Clear car markers
+        function clearCars() {
+            cars = null;
+            currentTaxi = null;
+            currentRoute = null;
+            currentMidMarkers = null;
+
+            $("#current_taxi").text("Unselected");
+            $("#taxi_select").attr("disabled", true);
+
+            $("#taxi_info").html("None");
+        }
+
+        // Select origin point
+        function selectOrigin() {
+            if (currentMarker != null) {
+                var point = currentMarker.point;
+                if (destMarker != null && checkDuplicate(destMarker.point, point))
+                    alert("Origin is identical to destination.");
+                else {
+                    clearCars();
+                    originMarker = newMarker(new BMap.Point(point.lng, point.lat), "red");
+                    originMarker.xlid = currentMarker.xlid;
+                    $("#origin_place").text("ID: " + originMarker.xlid.toString());
+                    refreshOverlays();
+                }
+            }
+            else
+                alert("Current position not set.");
+        }
+
+        // Select destination point
+        function selectDest() {
+            if (currentMarker != null) {
+                var point = currentMarker.point;
+                if (originMarker != null && checkDuplicate(originMarker.point, point))
+                    alert("Destination is identical to origin.");
+                else {
+                    clearCars();
+                    destMarker = newMarker(new BMap.Point(point.lng, point.lat), "green");
+                    destMarker.xlid = currentMarker.xlid;
+                    $("#destination_place").text("ID: " + destMarker.xlid.toString());
+                    refreshOverlays();
+                }
+            }
+            else
+                alert("Current position not set.");
+        }
+
+        // Marker click event handler
+        function clickOnMarker(e) {
+            map.removeOverlay(e.target);
+        }
+
+        // Car click event handler
+        function clickOnCar(e) {
+            var i = e.target.xlid;
+            $("#current_taxi").text(results[i][0].toString());
+            $("#taxi_select").removeAttr("disabled");
+            currentTaxi = cars[i];
+        }
+
+        // Map click event handler
+        function clickOnMap(e) {
+            refreshOverlays();
+
+            var epoint = gcoord.transform([e.point.lng, e.point.lat], gcoord.BD09, gcoord.GCJ02);
+            var epos = {lng: epoint[0], lat: epoint[1]};
+
+            $.post("/pos", JSON.stringify(epos), function(data) {
+                nearPos = data["result"];
+                if (nearPos.length == 0) {
+                    alert("Please choose a valid position.");
+                }
+                else {
+                    var id = nearPos[0];
+                    var lng = nearPos[1];
+                    var lat = nearPos[2];
+                    var point = gcoord.transform([lng, lat], gcoord.GCJ02, gcoord.BD09);
+                    var marker = newMarker(new BMap.Point(point[0], point[1]), "blue");
+                    marker.xlid = id;
+                    marker.addEventListener("click", clickOnMarker);
+                    map.addOverlay(marker);
+                    currentMarker = marker;
+                }
+            }, "json");
+        }
+
+        // Search for taxis
+        function searchForTaxis() {
+            if (originMarker == null || destMarker == null) {
+                alert("Please set origin and destination first.");
+                return;
+            }
+            var originId = originMarker.xlid;
+            var destId = destMarker.xlid;
+            var query = {origin: originId, dest: destId};
+
+            // Need to clear markers here
+            clearCars();
+
+            $.post("/query", JSON.stringify(query), function(data) {
+                results = data["result"];
+                if (results.length == 0) {
+                    $("#taxi_info").html("<p>No taxi found</p>");
+                }
+                else {
+                    var htmlStr = "<table class=\"table table-striped\">\n" +
+                        "<thead>\n" +
+                        "<tr>\n" +
+                        "<th>ID</th>\n" +
+                        "<th><span class=\"glyphicon glyphicon-user\"></span></th>\n" +
+                        "<th>Distance</th>\n" +
+                        "<th>Detour0</th>\n" +
+                        "<th>Detour1</th>\n" +
+                        "</tr>\n" +
+                        "</thead>\n" +
+                        "<tbody>\n";
+
+                    for (var i = 0; i < results.length; i++) {
+                        var resItem = results[i];
+
+                        var carId = resItem[0];
+                        var nPass = resItem[1] - 3;
+                        var dist = resItem[2];
+                        var detour0 = resItem[3];
+                        var detour1 = resItem[4];
+
+                        var lineStr = "<tr>\n" +
+                            "<th>" + carId.toString() + "</th>\n" +
+                            "<th>" + nPass.toString() + "</th>\n" +
+                            "<th>" + dist.toString() + "</th>\n" +
+                            "<th>" + detour0.toString() + "</th>\n" +
+                            "<th>" + detour1.toString() + "</th>\n" +
+                            "</tr>\n";
+
+                        htmlStr = htmlStr + lineStr;
+                    }
+
+                    htmlStr = htmlStr + "</tbody>\n" +
+                        "</table>";
+                    $("#taxi_info").html(htmlStr);
+
+                    cars = new Array();
+                    for (var i = 0; i < results.length; i++) {
+                        var resItem = results[i];
+
+                        var routes = resItem[5];
+                        var carPos = routes[0][0];
+                        var gpoint = gcoord.transform([carPos[1], carPos[2]], gcoord.GCJ02, gcoord.BD09);
+
+                        cars.push(newCar(new BMap.Point(gpoint[0], gpoint[1])));
+                        cars[i].xlid = i;
+                        cars[i].addEventListener("click", clickOnCar);
+                        map.addOverlay(cars[i]);
+                    }
+
+                    refreshOverlays();
+                    map.centerAndZoom(originMarker.point, 15);
+                }
+            }, "json");
+        }
+
+        // Select a taxi and show the route
+        function selectTaxi() {
+            currentRoute = null;
+            currentMidMarkers = null;
+            refreshOverlays();
+
+            var points = new Array();
+            var idx = currentTaxi.xlid;
+            var routes = results[idx][5];
+            for (var i = 0; i < routes.length; i++)
+                for (var j = 0; j < routes[i].length; j++) {
+                    var pos = routes[i][j];
+                    var gpoint = gcoord.transform([pos[1], pos[2]], gcoord.GCJ02, gcoord.BD09);
+                    points.push(new BMap.Point(gpoint[0], gpoint[1]));
+                }
+
+            var polyline = new BMap.Polyline(points, {
+                strokeColor: "blue",
+                strokeWeight: 8,
+                strokeOpacity: 0.8
+            });
+            map.addOverlay(polyline);
+            currentRoute = polyline;
+
+            for (var i = 2; i < routes.length; i++) {
+                var midPoint = routes[i][0];
+                var gpoint = gcoord.transform([midPoint[1], midPoint[2]], gcoord.GCJ02, gcoord.BD09);
+                var midMarker = newMarker(new BMap.Point(gpoint[0], gpoint[1]), "cyan");
+                map.addOverlay(midMarker);
+                currentMidMarkers.push(midMarker);
+            }
+        }
+
+        var map = new BMap.Map("container_map");
+        var point = new BMap.Point(116.404, 39.915);
+        var local = new BMap.LocalSearch(map, {renderOptions: {map: map}});
+
+        // Initialize map
+        map.centerAndZoom(point, 15);       // center position: Tian'An Men
+        map.enableScrollWheelZoom(true);
+        map.enableContinuousZoom();
+        map.addControl(new BMap.NavigationControl({anchor: BMAP_ANCHOR_BOTTOM_RIGHT}));
+        map.addControl(new BMap.ScaleControl({anchor: BMAP_ANCHOR_BOTTOM_RIGHT}));
+
+        // Event listener
+        map.addEventListener("click", clickOnMap);
+    </script>
+</html>
